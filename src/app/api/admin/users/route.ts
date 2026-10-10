@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       const sub = subscriptions.get(record.uid);
 
       // Prefer Supabase subscription, fallback to Firestore legacy plan
-      const authoritativePlanId = sub?.plan_id || profile.planId || 'free';
+      const authoritativePlanId = sub?.plan_id || profile.plan || 'free';
 
       return {
         uid: record.uid,

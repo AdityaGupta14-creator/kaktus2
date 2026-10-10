@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 
 import { requireRole, handleAuthError } from '@/lib/server/auth';
-import { auth, getBootstrapSuperAdminEmail } from '@/lib/server/firebase-admin';
+import { auth, getBootstrapSuperAdminEmails } from '@/lib/server/firebase-admin';
 import { logSecurityEvent } from '@/lib/server/security-logger';
 
 export async function POST(request: Request) {
@@ -38,9 +38,9 @@ export async function POST(request: Request) {
     }
 
     // 4. SUPER_ADMIN Protection: Prevent modifying/downgrading bootstrap SUPER_ADMIN account
-    const superAdminEmail = getBootstrapSuperAdminEmail();
+    const superAdminEmails = getBootstrapSuperAdminEmails();
     const targetEmail = (targetUserRecord.email || '').toLowerCase().trim();
-    if (superAdminEmail && targetEmail === superAdminEmail) {
+    if (superAdminEmails.includes(targetEmail)) {
       return Response.json({
         error: 'Forbidden. The bootstrap SUPER_ADMIN account cannot be suspended.',
       }, { status: 403 });

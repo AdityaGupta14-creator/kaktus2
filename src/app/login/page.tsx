@@ -21,11 +21,7 @@ function LoginContent() {
       const role = tokenResult.claims?.role || 'USER';
 
       let redirectTo = searchParams.get('redirect');
-      if (role === 'SUPPORT') {
-        redirectTo = '/support';
-      } else if (role === 'FINANCE') {
-        redirectTo = '/finance';
-      } else if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+      if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
         redirectTo = '/admin';
       } else if (!redirectTo || redirectTo === '/') {
         redirectTo = '/ide';

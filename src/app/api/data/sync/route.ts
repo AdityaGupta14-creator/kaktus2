@@ -115,8 +115,11 @@ export async function POST(request: Request) {
           });
         }
 
-        const compIds = new Set(compsToInsert.map(c => c.id));
-        const validConns = connsToInsert.filter(c => compIds.has(c.source_component_id) && compIds.has(c.target_component_id));
+        const uniqueCompsToInsert = Array.from(new Map(compsToInsert.map(c => [c.id, c])).values());
+        const uniqueConnsToInsert = Array.from(new Map(connsToInsert.map(c => [c.id, c])).values());
+
+        const compIds = new Set(uniqueCompsToInsert.map(c => c.id));
+        const validConns = uniqueConnsToInsert.filter(c => compIds.has(c.source_component_id) && compIds.has(c.target_component_id));
 
         // Use RPC for atomic sync to prevent partial data loss and ensure authorization.
         const { error: rpcError } = await adminSupabase.rpc('sync_workspace_atomic', {
@@ -124,7 +127,7 @@ export async function POST(request: Request) {
           p_project_id: id,
           p_project_name: `Project ${id.substring(0, 8)}`,
           p_workspace_state: workspaceState,
-          p_components: compsToInsert,
+          p_components: uniqueCompsToInsert,
           p_connections: validConns,
           p_files: filesToInsert
         });

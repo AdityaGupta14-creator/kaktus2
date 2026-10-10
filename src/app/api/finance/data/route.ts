@@ -38,16 +38,22 @@ export async function GET(request: Request) {
     }
 
     // 3. Fetch Finance Audit Logs
+    // Note: Removed orderBy('timestamp') to avoid requiring a composite index. Sorting manually.
     const auditSnap = await db.collection('security-logs')
       .where('type', 'in', ['PAYMENT_APPROVED', 'PAYMENT_REJECTED', 'REFUND_ISSUED', 'QUOTA_ADJUSTED'])
-      .orderBy('timestamp', 'desc')
-      .limit(100)
       .get();
       
-    const auditLogs = auditSnap.docs.map(doc => ({
+    let auditLogs = auditSnap.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
     }));
+
+    auditLogs.sort((a: any, b: any) => {
+      const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : new Date(a.timestamp || 0).getTime();
+      const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : new Date(b.timestamp || 0).getTime();
+      return timeB - timeA;
+    });
+    auditLogs = auditLogs.slice(0, 100);
 
     // Calculate Overview Metrics
     let totalRevenue = 0;

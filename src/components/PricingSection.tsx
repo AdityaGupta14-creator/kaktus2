@@ -1,12 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, X, Loader2 } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from './AuthProvider';
-import { getAdminPaymentSettings, submitPaymentVerification, PaymentSettings } from '@/lib/payments';
 
 // Reusing FadeIn for smooth reveals
 function FadeIn({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) {
@@ -28,51 +26,93 @@ export function PricingSection() {
   const router = useRouter();
   
   const [selectedPlan, setSelectedPlan] = useState<{ id: string, name: string, price: string } | null>(null);
-  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
-  const [txnId, setTxnId] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  
+  // Prefetched Cashfree data
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [cashfreeInstance, setCashfreeInstance] = useState<any>(null);
 
-  useEffect(() => {
-    getAdminPaymentSettings().then(setPaymentSettings);
-  }, []);
-
-  const handlePlanClick = (planId: string, planName: string, price: string) => {
-    if (planId === 'free') {
-      router.push(user ? '/ide' : '/login?redirect=/ide');
+  const handlePlanClick = async (planId: string, planName: string, price: string) => {
+    if (!user) {
+      router.push(planId === 'free' ? '/login?redirect=/ide' : '/login?redirect=/#pricing');
       return;
     }
-    
-    if (!user) {
-      router.push('/login?redirect=/#pricing');
+
+    if (planId === 'free') {
+      router.push('/ide');
       return;
     }
 
     setSelectedPlan({ id: planId, name: planName, price });
-    setTxnId('');
-    setSuccess(false);
     setError('');
+    setSessionId(null);
+    
+    // 1. Prefetch SDK
+    import('@cashfreepayments/cashfree-js').then(({ load }) => {
+      load({
+        mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === 'PRODUCTION' ? 'production' : 'sandbox',
+      }).then((cf: any) => setCashfreeInstance(cf));
+    });
+
+    // Payment prefetching disabled while payments are globally disabled
+    // try {
+    //   const response = await fetch('/api/cashfree/create-order', { ... });
+    // } catch (e) { ... }
   };
 
-  const handleSubmitTxn = async () => {
-    if (!txnId.trim()) {
-      setError('Please enter the UPI Transaction ID (UTR)');
+  const handleCashfreePayment = async () => {
+    if (!user) {
+      setError('Please login first to proceed with payment.');
       return;
     }
-    if (!user) return;
 
     setSubmitting(true);
     setError('');
+
     try {
-      await submitPaymentVerification(user.uid, user.email, selectedPlan!.id, txnId.trim());
-      setSuccess(true);
-      setTimeout(() => {
-        setSelectedPlan(null);
-        router.push('/ide');
-      }, 3000);
+      let currentSessionId = sessionId;
+      let cf = cashfreeInstance;
+
+      if (!currentSessionId) {
+        const response = await fetch('/api/cashfree/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            planId: selectedPlan!.id,
+            amount: selectedPlan!.price,
+            customerId: user.uid,
+            customerEmail: user.email,
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to create payment session.');
+        currentSessionId = data.payment_session_id;
+      }
+
+      if (!cf) {
+        const { load } = await import('@cashfreepayments/cashfree-js');
+        cf = await load({
+          mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === 'PRODUCTION' ? 'production' : 'sandbox',
+        });
+      }
+
+      const result = await cf.checkout({
+        paymentSessionId: currentSessionId,
+        redirectTarget: "_modal",
+      });
+      
+      if (result && result.error) {
+        throw new Error(result.error.message || 'Payment failed or cancelled.');
+      }
+      
+      // If success, the page might redirect, or we can handle it here
+      // For now, if it resolves without error, we can check status
     } catch (err: any) {
-      setError(err.message || 'Failed to submit verification.');
+      console.error("Checkout error:", err);
+      setError(typeof err === 'string' ? err : (err.message || 'Payment initialization failed.'));
+      setSessionId(null);
     } finally {
       setSubmitting(false);
     }
@@ -82,40 +122,47 @@ export function PricingSection() {
     <section id="pricing" className="w-full py-32 px-6 md:px-12 bg-white border-t border-gray-100">
       <div className="max-w-7xl mx-auto flex flex-col items-center">
         <FadeIn className="text-center mb-20 max-w-3xl">
-          <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">Simple, transparent pricing.</h2>
+          <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-6">Simple, transparent pricing.</h2>
           <p className="text-xl text-gray-500 leading-relaxed">
             Start building for free. Upgrade for advanced reasoning and complex projects using our Pro models.
           </p>
         </FadeIn>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 w-full max-w-6xl">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 w-full max-w-6xl">
           {/* Free Plan */}
           <FadeIn delay={0.1} className="flex flex-col p-8 bg-gray-50 rounded-3xl border border-gray-100 shadow-sm relative">
             <h3 className="text-2xl font-bold mb-2">Free</h3>
             <p className="text-gray-500 mb-6">Perfect for learning and simple circuits.</p>
-            <div className="text-5xl font-black mb-8">₹0<span className="text-lg text-gray-400 font-normal">/week</span></div>
-            <ul className="flex flex-col gap-4 mb-8 flex-grow">
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium text-black">25 Flash Runs / week</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">Standard AI Models</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">Circuit Canvas</span></li>
+            <div className="text-5xl font-black mb-8">₹0<span className="text-lg text-gray-400 font-normal">/mo</span></div>
+            <ul className="flex flex-col gap-4 mb-8 flex-grow text-sm">
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-bold text-black">25k Tokens Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium">5 Flash Runs Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">Gemini 2.5 Flash / Lite</span></li>
             </ul>
-            <button onClick={() => handlePlanClick('free', 'Free', '0')} className="w-full py-4 text-center rounded-xl bg-gray-200 text-gray-800 font-bold hover:bg-gray-300 transition-colors">
-              Get Started
+            <button 
+              onClick={() => handlePlanClick('free', 'Free', '0')} 
+              className="w-full py-4 text-center rounded-xl bg-gray-200 text-gray-800 font-bold hover:bg-gray-300 transition-colors"
+            >
+              Current Plan
             </button>
           </FadeIn>
 
           {/* 1 Week Plan */}
-          <FadeIn delay={0.2} className="flex flex-col p-8 bg-white rounded-3xl border-2 border-green-500 shadow-xl relative scale-105 z-10">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-green-500 text-white px-4 py-1 rounded-full text-sm font-bold tracking-wide">TESTING</div>
+          <FadeIn delay={0.2} className="flex flex-col p-8 bg-white rounded-3xl border-2 border-green-500 shadow-xl relative z-10">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-green-500 text-white px-4 py-1 rounded-full text-xs font-bold tracking-wide">POPULAR</div>
             <h3 className="text-2xl font-bold mb-2">Starter</h3>
-            <p className="text-gray-500 mb-6">Try the full power for a week.</p>
-            <div className="text-5xl font-black mb-8">₹1<span className="text-lg text-gray-400 font-normal">/week</span></div>
-            <ul className="flex flex-col gap-4 mb-8 flex-grow">
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium">Unlimited Flash</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-bold text-black">10 Pro Runs</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">Complex Reasoning</span></li>
+            <p className="text-gray-500 mb-6">Unlock better reasoning for 1 week.</p>
+            <div className="text-5xl font-black mb-8">₹29<span className="text-lg text-gray-400 font-normal">/week</span></div>
+            <ul className="flex flex-col gap-4 mb-8 flex-grow text-sm">
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-bold text-black">40k Tokens Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium">10 Flash Runs Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-blue-600 font-bold">Unlocks 3.5 Flash-Lite</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">15x Reasoning Capacity</span></li>
             </ul>
-            <button onClick={() => handlePlanClick('starter', 'Starter', '1')} className="w-full py-4 text-center rounded-xl bg-green-500 text-white font-bold hover:bg-green-600 transition-colors shadow-md">
+            <button 
+              onClick={() => handlePlanClick('starter', 'Starter', '29')} 
+              className="w-full py-4 text-center rounded-xl bg-green-500 text-white font-bold hover:bg-green-600 transition-colors shadow-md"
+            >
               Start Trial
             </button>
           </FadeIn>
@@ -123,14 +170,18 @@ export function PricingSection() {
           {/* 2 Week Plan */}
           <FadeIn delay={0.3} className="flex flex-col p-8 bg-gray-50 rounded-3xl border border-gray-100 shadow-sm relative">
             <h3 className="text-2xl font-bold mb-2">Booster</h3>
-            <p className="text-gray-500 mb-6">For your mid-term projects.</p>
-            <div className="text-5xl font-black mb-8">₹59<span className="text-lg text-gray-400 font-normal">/2 wks</span></div>
-            <ul className="flex flex-col gap-4 mb-8 flex-grow">
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium">Unlimited Flash</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-bold text-black">20 Pro Runs</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">Zero-bug Generation</span></li>
+            <p className="text-gray-500 mb-6">For your mid-term projects (2 weeks).</p>
+            <div className="text-5xl font-black mb-8">₹59<span className="text-lg text-gray-400 font-normal">/14 days</span></div>
+            <ul className="flex flex-col gap-4 mb-8 flex-grow text-sm">
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-bold text-black">60k Tokens Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium">20 Flash Runs Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-blue-600 font-bold">Unlocks 3.5 & 3.6 Flash</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">30x Reasoning Capacity</span></li>
             </ul>
-            <button onClick={() => handlePlanClick('booster', 'Booster', '59')} className="w-full py-4 text-center rounded-xl bg-gray-900 text-white font-bold hover:bg-black transition-colors">
+            <button 
+              onClick={() => handlePlanClick('booster', 'Booster', '59')} 
+              className="w-full py-4 text-center rounded-xl bg-gray-900 text-white font-bold hover:bg-black transition-colors"
+            >
               Upgrade
             </button>
           </FadeIn>
@@ -139,17 +190,39 @@ export function PricingSection() {
           <FadeIn delay={0.4} className="flex flex-col p-8 bg-gray-50 rounded-3xl border border-gray-100 shadow-sm relative">
             <h3 className="text-2xl font-bold mb-2">Pro</h3>
             <p className="text-gray-500 mb-6">For serious builders and engineers.</p>
-            <div className="text-5xl font-black mb-8">₹139<span className="text-lg text-gray-400 font-normal">/mo</span></div>
-            <ul className="flex flex-col gap-4 mb-8 flex-grow">
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium">Unlimited Flash</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-bold text-black">50 Pro Runs</span></li>
-              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">Priority Processing</span></li>
+            <div className="text-5xl font-black mb-8">₹159<span className="text-lg text-gray-400 font-normal">/month</span></div>
+            <ul className="flex flex-col gap-4 mb-8 flex-grow text-sm">
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-bold text-black">100k Tokens Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600 font-medium">50 Flash Runs Daily</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-blue-600 font-bold">Unlocks 3.7 & 3.8 Flash</span></li>
+              <li className="flex items-center gap-3"><CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-gray-600">100x Reasoning Capacity</span></li>
             </ul>
-            <button onClick={() => handlePlanClick('pro', 'Pro', '139')} className="w-full py-4 text-center rounded-xl bg-gray-900 text-white font-bold hover:bg-black transition-colors">
+            <button 
+              onClick={() => handlePlanClick('pro', 'Pro', '159')} 
+              className="w-full py-4 text-center rounded-xl bg-gray-900 text-white font-bold hover:bg-black transition-colors"
+            >
               Upgrade
             </button>
           </FadeIn>
         </div>
+
+        {/* Enterprise / Custom Plan */}
+        <FadeIn delay={0.5} className="mt-8 w-full max-w-6xl">
+          <div className="bg-gradient-to-r from-gray-900 to-black rounded-3xl p-8 md:p-12 flex flex-col md:flex-row items-center justify-between text-white shadow-2xl">
+            <div className="mb-6 md:mb-0 text-center md:text-left">
+              <h3 className="text-3xl font-bold mb-2">Need Custom Tokens?</h3>
+              <p className="text-gray-400 max-w-xl">
+                Require massive token limits, custom enterprise models, or team API access? Contact our admin to get a personalized pricing plan tailored for your heavy workloads.
+              </p>
+            </div>
+            <a 
+              href="mailto:admin@kaktus.com?subject=Custom Enterprise Pricing Inquiry" 
+              className="bg-white text-black hover:bg-gray-200 font-bold py-4 px-8 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 shadow-xl whitespace-nowrap"
+            >
+              Contact Admin
+            </a>
+          </div>
+        </FadeIn>
       </div>
 
       {/* Payment Modal */}
@@ -172,55 +245,41 @@ export function PricingSection() {
               <h2 className="text-2xl font-bold mb-2 text-center text-black">Complete Payment</h2>
               <p className="text-gray-500 text-center mb-6">Plan: {selectedPlan.name} (₹{selectedPlan.price})</p>
 
-              {success ? (
-                <div className="flex flex-col items-center justify-center py-10">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                    <CheckCircle2 className="w-8 h-8 text-green-600" />
-                  </div>
-                  <h3 className="text-xl font-bold text-green-600 mb-2">Verification Pending</h3>
-                  <p className="text-center text-gray-500">Your payment details have been submitted. Your plan will be activated shortly.</p>
+              <div className="flex flex-col items-center bg-gray-50 p-6 rounded-2xl border border-gray-100 mb-6">
+                <p className="text-sm text-gray-500 mb-2 font-medium uppercase tracking-wider">Total Amount</p>
+                <div className="text-5xl font-black text-black">₹{selectedPlan.price}</div>
+              </div>
+
+              {!user ? (
+                <div className="flex flex-col gap-2 mt-2">
+                  <p className="text-sm text-gray-600 text-center mb-2">You must be logged in to proceed with payment.</p>
+                  <button 
+                    onClick={() => router.push('/login?redirect=/#pricing')}
+                    className="w-full bg-gray-900 hover:bg-black text-white font-bold py-3.5 rounded-xl transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-[0.98] shadow-md flex items-center justify-center"
+                  >
+                    Log In to Continue
+                  </button>
                 </div>
               ) : (
-                <>
-                  <div className="flex flex-col items-center bg-gray-50 p-6 rounded-2xl border border-gray-100 mb-6">
-                    <p className="text-sm text-gray-500 mb-4 font-medium uppercase tracking-wider">Scan & Pay via UPI</p>
-                    
-                    {paymentSettings?.upiQrUrl ? (
-                      <img src={paymentSettings.upiQrUrl} alt="UPI QR Code" className="w-48 h-48 object-contain mb-4 rounded-xl border border-gray-200 bg-white p-2 shadow-sm" />
-                    ) : (
-                      <div className="w-48 h-48 bg-gray-200 animate-pulse rounded-xl mb-4 flex items-center justify-center border border-gray-300">
-                        <span className="text-gray-400 text-xs">Admin hasn't set QR</span>
-                      </div>
-                    )}
-
-                    <div className="text-center">
-                      <p className="text-xs text-gray-400 mb-1">Or pay to UPI ID:</p>
-                      <p className="font-mono text-black font-semibold bg-gray-200 px-3 py-1 rounded select-all">
-                        {paymentSettings?.upiId || 'Not set by admin'}
-                      </p>
-                    </div>
+                <div className="flex flex-col gap-4 mt-2">
+                  <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl mb-2">
+                    <p className="text-orange-800 text-sm font-medium text-center">
+                      Payments coming soon.
+                    </p>
+                    <p className="text-orange-600 text-xs text-center mt-1">
+                      Our payment gateway is currently being configured. Please check back later to upgrade your plan.
+                    </p>
                   </div>
-
-                  <div className="flex flex-col gap-2">
-                    <label className="text-sm font-semibold text-gray-700">UPI Transaction ID (UTR)</label>
-                    <input 
-                      type="text" 
-                      value={txnId} 
-                      onChange={e => setTxnId(e.target.value)} 
-                      placeholder="e.g. 312345678901"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none transition-all text-black"
-                    />
-                    {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
-                    
-                    <button 
-                      onClick={handleSubmitTxn}
-                      disabled={submitting}
-                      className="w-full mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 rounded-xl transition-colors shadow-md flex items-center justify-center"
-                    >
-                      {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Submit Verification"}
-                    </button>
-                  </div>
-                </>
+                  
+                  {error && <p className="text-red-600 text-sm text-center bg-red-50 p-3 rounded-lg border border-red-200">{error}</p>}
+                  
+                  <button 
+                    disabled={true}
+                    className="w-full bg-gray-300 cursor-not-allowed text-gray-500 font-bold py-4 rounded-xl shadow-sm flex items-center justify-center text-lg gap-2"
+                  >
+                    Pay Now with Cashfree
+                  </button>
+                </div>
               )}
             </motion.div>
           </div>

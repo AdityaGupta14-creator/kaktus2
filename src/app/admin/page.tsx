@@ -35,7 +35,8 @@ import {
   MoreVertical,
   Ban,
   Unlock,
-  DollarSign
+  DollarSign,
+  Sparkles
 } from 'lucide-react';
 import { 
   fetchAdminApiPool, 
@@ -51,6 +52,7 @@ import {
 } from '@/lib/admin';
 import Link from 'next/link';
 import { UserInspectionDrawer } from './UserInspectionDrawer';
+import { EarlyAccessManagement } from './EarlyAccessManagement';
 
 export default function AdminPanel() {
   const { user, loading: authLoading } = useAuth();
@@ -427,12 +429,11 @@ export default function AdminPanel() {
           <a href="#audit-logs" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-xl font-medium transition-colors">
             <Activity size={18} /> Audit Logs
           </a>
-          <Link href="/finance" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-xl font-medium transition-colors">
-            <DollarSign size={18} /> Finance Panel
-          </Link>
-          <Link href="/support" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-xl font-medium transition-colors">
-            <ShieldAlert size={18} /> Support Desk
-          </Link>
+          {userRole === 'SUPER_ADMIN' && (
+            <a href="#early-access" className="flex items-center gap-3 px-4 py-3 text-green-700 bg-green-50 hover:bg-green-100 rounded-xl font-medium transition-colors mt-2">
+              <Sparkles size={18} /> Early Access
+            </a>
+          )}
         </nav>
         
         <div className="mt-auto pt-6 border-t border-gray-100">
@@ -746,8 +747,9 @@ export default function AdminPanel() {
                 <option value="ALL">All Roles</option>
                 <option value="SUPER_ADMIN">SUPER_ADMIN</option>
                 <option value="ADMIN">ADMIN</option>
-                <option value="FINANCE">FINANCE</option>
-                <option value="SUPPORT">SUPPORT</option>
+                <option value="EARLY_ACCESS">EARLY_ACCESS</option>
+                <option value="FINANCE">FINANCE (Legacy)</option>
+                <option value="SUPPORT">SUPPORT (Legacy)</option>
                 <option value="USER">USER</option>
               </select>
             </div>
@@ -1187,6 +1189,7 @@ export default function AdminPanel() {
           )}
         </div>
 
+        {userRole === 'SUPER_ADMIN' && <EarlyAccessManagement />}
       </div>
 
       {inspectedUserId && (

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { useRouter } from 'next/navigation';
-import { Cpu, Calendar, CreditCard, Activity, ArrowLeft, MessageSquare, Database, ExternalLink, Plus } from 'lucide-react';
+import { Cpu, Calendar, CreditCard, Activity, ArrowLeft, MessageSquare, Database, ExternalLink, Plus, Sparkles } from 'lucide-react';
 import { CHAT_SESSION_REGISTRY_KEY } from '@/lib/session-store';
 
 interface UserProfile {
@@ -16,6 +16,7 @@ interface UserProfile {
   role: string;
   status: string;
   plan: string;
+  isEarlyAccessMember?: boolean;
   subscription?: {
     planId: string;
     status: string;
@@ -201,21 +202,19 @@ export default function ProfilePage() {
             <Link href="/ide" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20">
               <Cpu size={16} /> Launch IDE
             </Link>
-            {(profile.role === 'FINANCE') && (
-              <Link href="/finance" className="px-5 py-2.5 bg-green-600 hover:bg-green-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-900/20">
-                <Database size={16} /> Finance Panel
-              </Link>
-            )}
-            {(profile.role === 'SUPPORT') && (
-              <Link href="/support" className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20">
-                <Database size={16} /> Support Panel
-              </Link>
-            )}
+
             {(profile.role === 'ADMIN' || profile.role === 'SUPER_ADMIN') && (
               <Link href="/admin" className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-purple-900/20">
                 <Database size={16} /> Admin Panel
               </Link>
             )}
+            
+            {profile.isEarlyAccessMember && (
+              <Link href="/early-access" className="px-5 py-2.5 bg-green-600/20 hover:bg-green-600/30 border border-green-500/30 text-green-400 text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2">
+                <Sparkles size={16} /> Early Access
+              </Link>
+            )}
+
             <button 
               onClick={() => {
                 // Clear active session to force a new project

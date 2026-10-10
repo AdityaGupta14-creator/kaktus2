@@ -1,85 +1,21 @@
 'use client';
 
-import { Suspense, useRef, useMemo, useState, useEffect } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
 import { 
   Settings, Cpu, Cable, Zap, CircuitBoard, Usb, 
   TerminalSquare, Box, Component, MonitorDot, Database, Rocket,
-  Brain, Microchip, ShieldAlert, Sparkles, Code2, Layers, CheckCircle2
+  Brain, Code2, LogOut, Menu, X
 } from 'lucide-react';
+import { auth } from '@/lib/firebase';
+import { signOut } from 'firebase/auth';
 
 import { PricingSection } from '@/components/PricingSection';
+import { useAuth } from '@/components/AuthProvider';
 
-// 3D Particle Wave
-function ParticleWave() {
-  const count = 3000;
-  
-  const { positions, colors } = useMemo(() => {
-    const pos = new Float32Array(count * 3);
-    const cols = new Float32Array(count * 3);
-    
-    const colorA = new THREE.Color('#eab308'); // Yellow
-    const colorB = new THREE.Color('#22c55e'); // Green
-    const colorC = new THREE.Color('#f97316'); // Orange
-
-    for (let i = 0; i < count; i++) {
-      const phi = Math.acos(1 - (2 * i) / count);
-      const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-      
-      const radius = 6;
-      
-      const x = radius * Math.sin(phi) * Math.cos(theta);
-      const y = radius * Math.sin(phi) * Math.sin(theta);
-      const z = radius * Math.cos(phi);
-      
-      pos[i * 3] = x;
-      pos[i * 3 + 1] = y;
-      pos[i * 3 + 2] = z;
-      
-      const tempColor = new THREE.Color();
-      const t1 = (x + radius) / (radius * 2);
-      const t2 = (y + radius) / (radius * 2);
-      
-      tempColor.lerpColors(colorA, colorB, t1);
-      tempColor.lerp(colorC, t2);
-      
-      cols[i * 3] = tempColor.r;
-      cols[i * 3 + 1] = tempColor.g;
-      cols[i * 3 + 2] = tempColor.b;
-    }
-    return { positions: pos, colors: cols };
-  }, []);
-
-  const pointsRef = useRef<THREE.Points>(null);
-  
-  useFrame((state) => {
-    if (pointsRef.current) {
-      pointsRef.current.rotation.y = state.clock.elapsedTime * 0.03;
-      pointsRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.1) * 0.05;
-    }
-  });
-
-  return (
-    <points ref={pointsRef} position={[-4, 0, -2]}>
-      <bufferGeometry>
-        {/* @ts-ignore */}
-        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
-        {/* @ts-ignore */}
-        <bufferAttribute attach="attributes-color" count={count} array={colors} itemSize={3} />
-      </bufferGeometry>
-      <pointsMaterial 
-        size={0.06} 
-        vertexColors 
-        transparent 
-        opacity={0.8} 
-        sizeAttenuation={true} 
-      />
-    </points>
-  );
-}
+const HeroCanvas = dynamic(() => import('@/components/HeroCanvas'), { ssr: false });
 
 // Custom typing animation component with adjustable speed
 function TypingText({ text, as: Component = "div", className = "", delaySpeed = 0.1, duration = 0.4 }: { text: string, as?: any, className?: string, delaySpeed?: number, duration?: number }) {
@@ -125,12 +61,11 @@ function FadeIn({ children, delay = 0, className = "" }: { children: React.React
   );
 }
 
-import { useAuth } from '@/components/AuthProvider';
-
 export default function LandingPage() {
   const { user } = useAuth();
   
   const [role, setRole] = useState<string>('USER');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   useEffect(() => {
     if (user) {
@@ -140,7 +75,7 @@ export default function LandingPage() {
     }
   }, [user]);
 
-  const workspaceRoute = role === 'SUPPORT' ? '/support' : '/ide';
+  const workspaceRoute = '/ide';
 
   const icons = [
     Settings, CircuitBoard, Cpu, Cable, TerminalSquare, Box, 
@@ -150,49 +85,114 @@ export default function LandingPage() {
   return (
     <div className="w-full min-h-screen bg-white text-[#111] font-sans selection:bg-green-500/20 overflow-x-hidden">
       
-      {/* Navbar: Fully Transparent, No Border */}
-      <header className="fixed top-0 left-0 right-0 h-20 flex items-center justify-between px-6 md:px-12 z-50 bg-transparent">
-        <div className="flex items-center gap-2">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-green-600">
-            <defs>
-              <linearGradient id="logoGrad" x1="0" y1="24" x2="24" y2="0" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#eab308" />
-                <stop offset="50%" stopColor="#22c55e" />
-                <stop offset="100%" stopColor="#f97316" />
-              </linearGradient>
-            </defs>
-            <g stroke="url(#logoGrad)">
-              <path d="M12 22V4" />
-              <path d="M12 14H9a2 2 0 0 1-2-2V8" />
-              <path d="M12 10h3a2 2 0 0 0 2-2V5" />
-            </g>
-          </svg>
-          <span className="font-semibold text-lg tracking-tight">Kaktus</span>
+      {/* Navbar */}
+      <header className="fixed top-0 left-0 right-0 h-20 flex items-center justify-between px-6 md:px-12 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-2">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <defs>
+                <linearGradient id="logoGrad" x1="0" y1="24" x2="24" y2="0" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stopColor="#eab308" />
+                  <stop offset="50%" stopColor="#22c55e" />
+                  <stop offset="100%" stopColor="#f97316" />
+                </linearGradient>
+              </defs>
+              <g stroke="url(#logoGrad)">
+                <path d="M12 22V4" />
+                <path d="M12 14H9a2 2 0 0 1-2-2V8" />
+                <path d="M12 10h3a2 2 0 0 0 2-2V5" />
+              </g>
+            </svg>
+            <span className="font-semibold text-lg tracking-tight">Kaktus</span>
+          </Link>
+
+          {user && (
+            <button
+              onClick={() => signOut(auth)}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-gray-600 hover:text-red-600 bg-gray-100/90 hover:bg-red-50 border border-gray-200 hover:border-red-200 rounded-full transition-all shadow-xs backdrop-blur-sm cursor-pointer"
+              title={`Logged in as ${user.email || 'User'} - Click to Logout`}
+            >
+              <LogOut size={13} />
+              <span>Log out</span>
+            </button>
+          )}
         </div>
         
         <nav className="hidden lg:flex items-center gap-10 text-sm font-medium text-gray-500">
           <Link href="/app-info" className="hover:text-black transition-colors">App Info</Link>
           <Link href="/how-to-use" className="hover:text-black transition-colors">How to Use</Link>
           <a href="#pricing" className="hover:text-black transition-colors">Pricing</a>
-          {!user ? (
-            <Link href="/login" className="font-semibold text-green-600 hover:text-green-700">Login</Link>
-          ) : (
-            <Link href={workspaceRoute} className="font-semibold text-green-600 hover:text-green-700">Workspace</Link>
-          )}
         </nav>
-        
-        <div className="w-[100px] hidden md:block"></div>
+
+        <div className="flex items-center gap-2 md:gap-4">
+          {!user ? (
+            <Link 
+              href="/login"
+              className="hidden sm:inline-flex px-5 py-2.5 rounded-full bg-[#111] text-white text-sm font-semibold hover:bg-black transition-all hover:scale-105 shadow-sm"
+            >
+              Login
+            </Link>
+          ) : (
+            <Link 
+              href={workspaceRoute}
+              className="hidden sm:inline-flex px-5 py-2.5 rounded-full bg-[#111] text-white text-sm font-semibold hover:bg-black transition-all hover:scale-105 shadow-sm"
+            >
+              Workspace
+            </Link>
+          )}
+          <button 
+            className="lg:hidden p-2 text-gray-700 hover:text-black transition-colors"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label="Toggle mobile menu"
+          >
+            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+        </div>
       </header>
+
+      {/* Mobile Navigation Menu */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-20 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-100 shadow-lg px-6 py-4 flex flex-col gap-4 lg:hidden"
+          >
+            <Link href="/app-info" className="py-2 text-lg font-medium text-gray-700 hover:text-black transition-colors" onClick={() => setIsMobileMenuOpen(false)}>App Info</Link>
+            <Link href="/how-to-use" className="py-2 text-lg font-medium text-gray-700 hover:text-black transition-colors" onClick={() => setIsMobileMenuOpen(false)}>How to Use</Link>
+            <a href="#pricing" className="py-2 text-lg font-medium text-gray-700 hover:text-black transition-colors" onClick={() => setIsMobileMenuOpen(false)}>Pricing</a>
+            
+            <div className="h-px w-full bg-gray-100 my-2"></div>
+            
+            {!user ? (
+              <Link 
+                href="/login"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-full text-center py-3 rounded-xl bg-[#111] text-white font-semibold hover:bg-black transition-colors"
+              >
+                Login
+              </Link>
+            ) : (
+              <Link 
+                href={workspaceRoute}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-full text-center py-3 rounded-xl bg-[#111] text-white font-semibold hover:bg-black transition-colors"
+              >
+                Enter Workspace
+              </Link>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Hero Section */}
       <main className="relative w-full h-screen flex flex-col justify-center items-center text-center">
         
         {/* 3D Background */}
         <div className="absolute inset-0 z-0 pointer-events-none opacity-60">
-          <Canvas camera={{ position: [0, 0, 10], fov: 45 }}>
-            <ambientLight intensity={1} />
-            <ParticleWave />
-          </Canvas>
+          <HeroCanvas />
         </div>
 
         {/* Hero Content */}
@@ -213,7 +213,7 @@ export default function LandingPage() {
             as="h1"
             delaySpeed={0.25}
             duration={0.6}
-            className="text-5xl md:text-7xl lg:text-[5rem] leading-[1.1] font-bold tracking-tight text-[#111] mb-10 flex flex-wrap justify-center"
+            className="text-4xl sm:text-5xl md:text-7xl lg:text-[5rem] leading-[1.1] font-bold tracking-tight text-[#111] mb-10 flex flex-wrap justify-center"
           />
         </div>
       </main>
@@ -245,19 +245,19 @@ export default function LandingPage() {
           <TypingText 
             text="Kaktus is our intelligent hardware engineering platform, allowing anyone to design, wire, and build in the AI-first era." 
             delaySpeed={0.08}
-            className="text-4xl md:text-5xl font-medium text-[#111] leading-tight flex flex-wrap gap-x-3 gap-y-2 justify-center max-w-4xl mx-auto"
+            className="text-3xl sm:text-4xl md:text-5xl font-medium text-[#111] leading-tight flex flex-wrap gap-x-2 md:gap-x-3 gap-y-1 md:gap-y-2 justify-center max-w-4xl mx-auto"
           />
         </div>
       </section>
 
-      {/* New High-Level Info Sections for Main Page */}
+      {/* High-Level Info Sections for Main Page */}
       <section className="w-full py-32 px-6 md:px-12 bg-white border-t border-gray-100">
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
           <FadeIn>
             <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-8">
               <Brain className="w-8 h-8 text-orange-500" />
             </div>
-            <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">Omniscient Intelligence.</h2>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-6">Omniscient Intelligence.</h2>
             <p className="text-xl text-gray-500 leading-relaxed mb-8">
               We replaced thousands of datasheets and hours of manual routing with a single, omniscient AGI core that understands physics.
             </p>
@@ -266,7 +266,6 @@ export default function LandingPage() {
             </Link>
           </FadeIn>
           <FadeIn delay={0.2} className="bg-gray-50 rounded-3xl p-12 h-96 flex items-center justify-center border border-gray-100 shadow-inner">
-            {/* Minimal graphic representing intelligence */}
             <div className="relative w-40 h-40">
               <div className="absolute inset-0 border-2 border-orange-200 rounded-full animate-ping opacity-20"></div>
               <div className="absolute inset-4 border-2 border-orange-300 rounded-full animate-spin" style={{ animationDuration: '4s' }}></div>
@@ -280,7 +279,6 @@ export default function LandingPage() {
       <section className="w-full py-32 px-6 md:px-12 bg-gray-50/50">
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
           <FadeIn className="bg-white rounded-3xl p-12 h-96 flex items-center justify-center border border-gray-100 shadow-sm order-2 md:order-1">
-             {/* Minimal graphic representing simulation */}
              <div className="flex flex-col gap-4 w-full max-w-xs">
                <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden">
                  <div className="h-full bg-green-400 w-3/4 animate-pulse"></div>
@@ -297,7 +295,7 @@ export default function LandingPage() {
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-8">
               <Code2 className="w-8 h-8 text-green-500" />
             </div>
-            <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">Simulate Reality.</h2>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-6">Simulate Reality.</h2>
             <p className="text-xl text-gray-500 leading-relaxed mb-8">
               Test your firmware directly against virtual hardware. The system compiles C++ instantly and simulates serial logic in real-time.
             </p>
@@ -307,15 +305,16 @@ export default function LandingPage() {
           </FadeIn>
         </div>
       </section>
+      
       <PricingSection />
 
-      {/* Huge CTA Section at the absolute bottom */}
+      {/* CTA Section at the bottom */}
       <section className="w-full py-40 px-6 flex flex-col items-center justify-center text-center bg-gray-50/50 border-t border-gray-100">
         <FadeIn className="flex flex-col items-center max-w-3xl">
           <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-8">
             <Rocket className="text-green-600 w-10 h-10" />
           </div>
-          <h2 className="text-5xl md:text-7xl font-bold tracking-tight mb-8">
+          <h2 className="text-4xl md:text-7xl font-bold tracking-tight mb-8">
             Ready to build?
           </h2>
           <p className="text-xl text-gray-500 mb-12">
@@ -323,7 +322,7 @@ export default function LandingPage() {
           </p>
           <Link 
             href={user ? workspaceRoute : '/login?redirect=/ide'}
-            className="group relative px-10 py-5 bg-[#111] text-white text-xl font-bold rounded-full hover:bg-black transition-all hover:scale-105 shadow-2xl flex items-center gap-3 overflow-hidden"
+            className="group relative px-8 py-4 md:px-10 md:py-5 bg-[#111] text-white text-lg md:text-xl font-bold rounded-full hover:bg-black transition-all hover:scale-105 shadow-2xl flex items-center gap-3 overflow-hidden"
           >
             <span className="relative z-10 flex items-center gap-2">
               Enter Workspace 

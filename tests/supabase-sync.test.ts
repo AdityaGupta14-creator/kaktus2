@@ -21,6 +21,7 @@ vi.mock('../src/lib/server/supabase.ts', () => {
       from: vi.fn((table) => ({
         upsert: vi.fn().mockResolvedValue({ error: null }),
         select: selectMock,
+        insert: vi.fn().mockResolvedValue({ error: null }),
       })),
       storage: {
         from: vi.fn(() => ({
@@ -71,6 +72,7 @@ describe('Supabase Sync Mock Tests', () => {
           maybeSingle: vi.fn().mockResolvedValue({ data: null }) 
         }) 
       }),
+      insert: vi.fn().mockResolvedValue({ error: null }),
     } as any));
 
     const req = new Request('http://localhost/api/data/sync', { 

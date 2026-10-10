@@ -4,7 +4,7 @@ import { requireRole, handleAuthError } from '@/lib/server/auth';
 
 export async function GET(request: Request) {
   try {
-    const caller = await requireRole(request, ['SUPER_ADMIN', 'ADMIN', 'FINANCE', 'SUPPORT']);
+    const caller = await requireRole(request, ['SUPER_ADMIN', 'ADMIN']);
     return Response.json({
       authenticated: true,
       uid: caller.uid,

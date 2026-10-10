@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk, Fira_Code } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
+import { Toaster } from 'sonner';
 
 const customFont = Space_Grotesk({
   variable: "--font-custom",
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           {children}
         </AuthProvider>
+        <Toaster richColors closeButton />
         <div className="fixed bottom-2 left-2 z-[9999] bg-black/40 backdrop-blur-sm text-white/50 font-mono text-[10px] px-2 py-1 rounded border border-white/10 pointer-events-none select-none tracking-wider uppercase">
           Prototype Version
         </div>

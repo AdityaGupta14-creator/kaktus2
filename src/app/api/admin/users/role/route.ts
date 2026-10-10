@@ -1,8 +1,8 @@
 export const runtime = 'nodejs';
 
 import { requireRole, handleAuthError } from '@/lib/server/auth';
-import { auth, setUserRole, getBootstrapSuperAdminEmail } from '@/lib/server/firebase-admin';
-import { isValidRole } from '@/lib/server/roles';
+import { auth, setUserRole, getBootstrapSuperAdminEmails } from '@/lib/server/firebase-admin';
+import { isAssignableRole } from '@/lib/server/roles';
 import { logSecurityEvent } from '@/lib/server/security-logger';
 
 export async function POST(request: Request) {
@@ -24,9 +24,9 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Target user UID is required.' }, { status: 400 });
     }
 
-    if (!isValidRole(newRole)) {
+    if (!isAssignableRole(newRole)) {
       return Response.json({
-        error: `Invalid role '${newRole}'. Valid roles: SUPER_ADMIN, ADMIN, SUPPORT, FINANCE, USER`,
+        error: `Invalid role '${newRole}'. Assignable roles: SUPER_ADMIN, ADMIN, EARLY_ACCESS, USER. FINANCE and SUPPORT are legacy roles that cannot be newly assigned.`,
       }, { status: 400 });
     }
 
@@ -44,9 +44,9 @@ export async function POST(request: Request) {
     }
 
     // 4. SUPER_ADMIN Protection: Prevent modifying/downgrading bootstrap SUPER_ADMIN account
-    const superAdminEmail = getBootstrapSuperAdminEmail();
+    const superAdminEmails = getBootstrapSuperAdminEmails();
     const targetEmail = (targetUserRecord.email || '').toLowerCase().trim();
-    if (superAdminEmail && targetEmail === superAdminEmail) {
+    if (superAdminEmails.includes(targetEmail)) {
       return Response.json({
         error: 'Forbidden. The bootstrap SUPER_ADMIN account cannot be modified or downgraded via the API.',
       }, { status: 403 });

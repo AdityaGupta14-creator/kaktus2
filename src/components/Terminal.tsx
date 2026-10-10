@@ -77,7 +77,18 @@ export const Terminal = forwardRef<TerminalRef>((props, ref) => {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const hostname = window.location.hostname;
-    const wsUrl = `${protocol}//${hostname}:3001`;
+    
+    // Support production via env var, with a strict local development fallback
+    let wsUrl = process.env.NEXT_PUBLIC_TERMINAL_WS_URL;
+    if (!wsUrl && process.env.NODE_ENV === 'development') {
+      wsUrl = `${protocol}//${hostname}:3001`;
+    }
+
+    if (!wsUrl) {
+      term.write('\r\n*** Terminal unavailable: WebSocket URL not configured. ***\r\n');
+      return;
+    }
+
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

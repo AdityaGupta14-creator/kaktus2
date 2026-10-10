@@ -101,10 +101,12 @@ export const db = initialized.db;
 /**
  * Returns configured bootstrap SUPER_ADMIN email from SUPER_ADMIN_EMAIL env
  */
-export function getBootstrapSuperAdminEmail(): string | null {
-  const envEmail = process.env.SUPER_ADMIN_EMAIL || '';
-  const trimmed = envEmail.trim().toLowerCase();
-  return trimmed || null;
+export function getBootstrapSuperAdminEmails(): string[] {
+  const envEmails = process.env.SUPER_ADMIN_EMAIL || '';
+  return envEmails
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 /**
@@ -123,10 +125,10 @@ export function getBootstrapAdminEmails(): string[] {
  */
 export function resolveUserRole(decoded: DecodedIdToken): UserRole {
   const email = (decoded.email || '').toLowerCase().trim();
-  const superAdminEmail = getBootstrapSuperAdminEmail();
+  const superAdminEmails = getBootstrapSuperAdminEmails();
 
   // 1. Check bootstrap SUPER_ADMIN_EMAIL first
-  if (email && superAdminEmail && email === superAdminEmail) {
+  if (email && superAdminEmails.includes(email)) {
     // If the token doesn't already contain the claim, sync it in the background
     if (decoded.role !== 'SUPER_ADMIN') {
       auth.setCustomUserClaims(decoded.uid, {
@@ -142,6 +144,8 @@ export function resolveUserRole(decoded: DecodedIdToken): UserRole {
   // 2. Authoritative Firebase custom claims
   if (decoded.role === 'SUPER_ADMIN') return 'SUPER_ADMIN';
   if (decoded.role === 'ADMIN' || decoded.admin === true) return 'ADMIN';
+  if (decoded.role === 'EARLY_ACCESS') return 'EARLY_ACCESS';
+  // Legacy roles — still recognized for existing token holders
   if (decoded.role === 'FINANCE') return 'FINANCE';
   if (decoded.role === 'SUPPORT') return 'SUPPORT';
 
@@ -189,7 +193,7 @@ export async function verifyUserToken(token: string): Promise<AuthenticatedUser 
  */
 export async function setUserRole(uid: string, role: UserRole): Promise<void> {
   if (!isValidRole(role)) {
-    throw new Error(`Invalid role '${role}'. Allowed roles: SUPER_ADMIN, ADMIN, SUPPORT, FINANCE, USER`);
+    throw new Error(`Invalid role '${role}'. Assignable roles: SUPER_ADMIN, ADMIN, EARLY_ACCESS, USER. Legacy roles FINANCE and SUPPORT are recognized for existing holders but cannot be newly assigned.`);
   }
 
   const userRecord = await auth.getUser(uid);

@@ -139,6 +139,8 @@ interface ChatBoxProps {
   pendingPlanAction: PlanBuildAction | null;
   onPlanActionConsumed: () => void;
   modelSelectorNode?: React.ReactNode;
+  onQuotaReached?: () => void;
+  onRunCompleted?: () => void;
 }
 
 
@@ -500,24 +502,24 @@ function NextStepsCard({ block, onSelect }: { block: AgentNextStepsBlock, onSele
     >
       <div className="bg-[#0a0a0a] border border-gray-700/50 rounded-xl overflow-hidden shadow-lg">
         <div className="px-4 py-2.5 border-b border-gray-800/60 bg-[#0f0f0f] flex items-center gap-2">
-          <CheckCircle2 size={14} className="text-gray-400" />
+          <CheckCircle2 size={14} className="text-emerald-400" />
           <span className="text-gray-300 text-xs font-semibold">{block.completed}</span>
-          <span className="text-gray-600 text-xs">completed</span>
+          <span className="text-gray-600 text-xs">completed. Next Step Pending:</span>
         </div>
-        <div className="p-2">
+        <div className="p-3 space-y-4">
           {block.steps.map((step, i) => (
-            <button
-              key={i}
-              onClick={() => onSelect(step.action)}
-              className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#1a1a1a] transition-colors group cursor-pointer"
-            >
-              <div className="w-6 h-6 rounded-full bg-gray-800 group-hover:bg-gray-700 flex items-center justify-center flex-shrink-0 transition-colors">
-                <ArrowRight size={12} className="text-gray-500 group-hover:text-gray-300" />
+            <div key={i}>
+              <div className="flex items-start gap-2 text-[12px] mb-2">
+                <CircleDot size={14} className="text-blue-500 mt-0.5 shrink-0" />
+                <span className="text-gray-200 font-semibold">{step.label}</span>
               </div>
-              <span className="text-gray-300 text-sm group-hover:text-white transition-colors">
-                {step.label}
-              </span>
-            </button>
+              <button
+                onClick={() => onSelect(step.action)}
+                className="ml-5 flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors text-xs font-medium shadow-md shadow-blue-900/20"
+              >
+                Proceed to Next Step <ArrowRight size={12} />
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -619,9 +621,30 @@ function PhaseContinueButton({ plan, phaseIndex, completedIndices, onContinue }:
   const nextIndex = findNextEligiblePhase(plan, completed);
   const next = plan.subsystems[nextIndex];
   if (!next) return null;
-  return <button onClick={() => onContinue(plan, nextIndex, completed)} className="mt-3 inline-flex items-center gap-2 px-3 py-2 border border-gray-700 bg-gray-900 hover:bg-gray-800 rounded-md text-xs text-gray-300">
-    <BookOpen size={14} /> Build next: {next.name} <ArrowRight size={13} />
-  </button>;
+  
+  return (
+    <div className="mb-3 mt-4 w-full max-w-[95%]">
+      <div className="flex w-full items-center gap-2 border-b border-gray-800 pb-2 text-left text-xs font-medium text-emerald-400">
+        <CheckCircle2 size={14} />
+        <span>Phase Completed. Next Step Pending:</span>
+      </div>
+      <div className="py-3">
+        <div className="flex items-start gap-2 text-[12px] mb-3">
+          <CircleDot size={14} className="text-blue-500 mt-0.5 shrink-0" />
+          <div className="flex-1 text-gray-200">
+            <span className="font-semibold text-gray-100">{next.name}</span>
+            <p className="text-gray-400 mt-0.5 text-[11px] leading-relaxed">{next.purpose}</p>
+          </div>
+        </div>
+        <button 
+          onClick={() => onContinue(plan, nextIndex, completed)}
+          className="ml-5 flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors text-xs font-medium shadow-md shadow-blue-900/20"
+        >
+          Proceed to Next Step <ArrowRight size={12} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function artifactBaseName(content: string): string {
@@ -675,7 +698,7 @@ function printResponseAsPdf(content: string, title: string) {
 }
 
 // --- Main Component ---
-export function ChatBox({ apiKeys, model, onExecuteCommand, onUpdateCircuit, onStepChange, currentStep, totalSteps, circuitData, allTabs, activeTabId, targetWorkspaceTabId, sessionId, sessionTitle, sessions, onNewChat, onSelectSession, onUpdateSessionTitle, onDeleteSession, onOpenImplementationPlan, pendingPlanAction, onPlanActionConsumed, modelSelectorNode }: ChatBoxProps) {
+export function ChatBox({ apiKeys, model, onExecuteCommand, onUpdateCircuit, onStepChange, currentStep, totalSteps, circuitData, allTabs, activeTabId, targetWorkspaceTabId, sessionId, sessionTitle, sessions, onNewChat, onSelectSession, onUpdateSessionTitle, onDeleteSession, onOpenImplementationPlan, pendingPlanAction, onPlanActionConsumed, modelSelectorNode, onQuotaReached, onRunCompleted }: ChatBoxProps) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatReady, setChatReady] = useState(false);
@@ -913,7 +936,7 @@ EXACT FORMAT REQUIRED:
 
 RULES:
 - Every step needs instruction, detail, verify, add_components, add_wiring
-- Components need id, type, x, y (coordinates 100-1500)
+- CRITICAL LAYOUT RULE: Components are very large. Place them in a wide-open grid, spaced AT LEAST 600-800px apart (x/y coordinates 100-2000). NEVER overlap components or cram them together. Do not try to fit them into a small area.
 - Wires need from, to, color (format: "componentId:pinName")
 - Use real component types: arduino_uno, led, resistor, capacitor, buzzer, servo, etc.
 - Wire colors: red=power, black=ground, green=signal, orange=PWM
@@ -1126,6 +1149,9 @@ RULES:
         firmwareBuilds,
       }]);
 
+      // Notify parent to refresh quota counter after a completed run
+      onRunCompleted?.();
+
     } catch (error: any) {
       if (error.name === 'AbortError') {
         progressLog.push({ type: 'progress', text: 'User cancelled agent execution.' });
@@ -1135,6 +1161,9 @@ RULES:
         }]);
       } else {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.toLowerCase().includes('allowance exhausted') || errorMessage.toLowerCase().includes('allowance exceeded')) {
+          onQuotaReached?.();
+        }
         progressLog.push({ type: 'progress', text: `Request ended with an error: ${errorMessage}` });
         setMessages(prev => [...prev, {
           role: 'assistant', content: `Error: ${errorMessage}`, cleanText: `Error: ${errorMessage}`,

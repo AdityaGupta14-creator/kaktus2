@@ -45,8 +45,22 @@ export async function GET(request: Request) {
       role: user.role || 'USER',
       status: userData.status || 'active',
       plan: subscription?.planId || userData.plan || 'free',
-      subscription
+      subscription,
+      isEarlyAccessMember: false
     };
+
+    try {
+      const { data: memberData } = await adminSupabase
+        .from('early_access_members')
+        .select('user_uid')
+        .eq('user_uid', uid)
+        .single();
+      if (memberData || user.role === 'SUPER_ADMIN') {
+        profile.isEarlyAccessMember = true;
+      }
+    } catch (e) {
+      console.warn('[Profile API] Failed to check early access:', e);
+    }
 
     // 2. Fetch API Usage from Supabase
     let usageErrorMsg = null;

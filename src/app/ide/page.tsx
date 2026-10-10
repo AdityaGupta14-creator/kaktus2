@@ -9,7 +9,7 @@ import { ChatBox, ImplementationPlanCard } from '@/components/ChatBox';
 import { ModelSelector } from '@/components/ModelSelector';
 import type { TerminalRef } from '@/components/Terminal';
 import type { TutorialData } from '@/components/CircuitCanvas';
-import { TerminalSquare, X, Layers, Cpu, Cable, Zap, CircuitBoard, Usb, Settings, Upload, Trash2, Circle, User } from 'lucide-react';
+import { TerminalSquare, X, Layers, Cpu, Cable, Zap, CircuitBoard, Usb, Settings, Upload, Trash2, Circle, User, AlertTriangle, ShieldAlert, LogOut } from 'lucide-react';
 import { FlashPanel } from '@/components/FlashPanel';
 import { extractProjectPlanResponse } from '@/lib/agent/protocol';
 import type { PlanBuildAction, ProjectPlan, ResearchSource } from '@/lib/agent/protocol';
@@ -83,6 +83,57 @@ export default function Home() {
   const [userRole, setUserRole] = useState<string>('USER');
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'synced' | 'error' | 'offline'>('idle');
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // runsRemaining / planMaxRuns from server. null = not yet fetched.
+  const [quotaData, setQuotaData] = useState<{ runsRemaining: number; planMaxRuns: number; planId: string } | null>(null);
+  // showQuotaModal is ONLY set true when the backend explicitly rejects with a 403 entitlement error.
+  // It is never derived from local quota state to prevent false positives.
+  const [showQuotaModal, setShowQuotaModal] = useState(false);
+  const [quotaFetched, setQuotaFetched] = useState(false);
+  const [quotaError, setQuotaError] = useState(false);
+
+  const fetchQuota = useCallback(async () => {
+    if (!user?.uid) {
+      if (!authLoading) setQuotaFetched(true);
+      return;
+    }
+    setQuotaError(false);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/user/quota', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.quota) {
+          setQuotaData({
+            runsRemaining: data.quota.runsRemaining,
+            planMaxRuns: data.quota.planMaxRuns,
+            planId: data.quota.planId,
+          });
+          setQuotaFetched(true);
+          return;
+        }
+      }
+      // Non-ok response
+      setQuotaError(true);
+    } catch (err) {
+      console.error('Failed to fetch quota', err);
+      setQuotaError(true);
+    }
+    setQuotaFetched(true);
+  }, [user, authLoading]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      fetchQuota();
+      const interval = setInterval(fetchQuota, 30000);
+      return () => clearInterval(interval);
+    } else if (!authLoading) {
+      setQuotaFetched(true);
+      setQuotaError(false);
+    }
+  }, [user?.uid, authLoading]);
 
   useEffect(() => {
     if (user) {
@@ -583,25 +634,7 @@ export default function Home() {
         <div className="flex items-center h-full pr-4 gap-3">
           {user && (
             <>
-              {userRole === 'FINANCE' ? (
-                <Link href="/finance" className="flex items-center gap-2 group cursor-pointer hover:bg-[#333333] p-1.5 rounded-md transition-colors" title="Finance Panel">
-                  <div className="w-5 h-5 rounded-full bg-green-600 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
-                    {(user.displayName || user.email || "F")[0].toUpperCase()}
-                  </div>
-                  <span className="text-[11px] text-gray-300 group-hover:text-white transition-colors font-medium hidden md:block">
-                    Finance Panel
-                  </span>
-                </Link>
-              ) : userRole === 'SUPPORT' ? (
-                <Link href="/support" className="flex items-center gap-2 group cursor-pointer hover:bg-[#333333] p-1.5 rounded-md transition-colors" title="Support Panel">
-                  <div className="w-5 h-5 rounded-full bg-orange-600 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
-                    {(user.displayName || user.email || "S")[0].toUpperCase()}
-                  </div>
-                  <span className="text-[11px] text-gray-300 group-hover:text-white transition-colors font-medium hidden md:block">
-                    Support Panel
-                  </span>
-                </Link>
-              ) : (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') ? (
+              {(userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') ? (
                 <Link href="/admin" className="flex items-center gap-2 group cursor-pointer hover:bg-[#333333] p-1.5 rounded-md transition-colors" title="Admin Panel">
                   <div className="w-5 h-5 rounded-full bg-purple-600 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
                     {(user.displayName || user.email || "A")[0].toUpperCase()}
@@ -623,11 +656,60 @@ export default function Home() {
               
               <div className="w-px h-3 bg-gray-700 mx-1"></div>
 
+              {/* Quota Usage Bar (Data fetched from authoritative endpoint) */}
+              <div className="flex items-center gap-3 mr-2 bg-[#1a1a1a] px-3 py-1.5 rounded-md border border-[#333]">
+                {quotaError ? (
+                  <div className="flex flex-col items-center justify-center w-28">
+                    <span className="text-[9px] text-red-400 font-semibold mb-0.5">Unable to load</span>
+                    <button onClick={fetchQuota} className="text-[9px] text-gray-400 hover:text-white underline cursor-pointer">Retry</button>
+                  </div>
+                ) : !quotaFetched ? (
+                  <div className="flex flex-col items-center justify-center w-28">
+                    <span className="text-[9px] text-gray-500 font-medium">Loading...</span>
+                  </div>
+                ) : quotaData && quotaData.planMaxRuns > 0 ? (
+                  // Paid plan — show actual run counter
+                  <div className="flex flex-col items-end w-28">
+                    <div className="flex justify-between w-full mb-1">
+                      <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">Runs</span>
+                      <span className={`text-[9px] font-medium ${
+                        quotaData.runsRemaining === 0 ? 'text-red-400' :
+                        quotaData.runsRemaining <= 5 ? 'text-amber-400' : 'text-blue-400'
+                      }`}>{quotaData.runsRemaining} / {quotaData.planMaxRuns}</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          quotaData.runsRemaining === 0 ? 'bg-red-600' :
+                          quotaData.runsRemaining <= 5 ? 'bg-gradient-to-r from-amber-600 to-amber-400' :
+                          'bg-gradient-to-r from-blue-600 to-blue-400'
+                        }`}
+                        style={{ width: `${Math.min(100, (quotaData.runsRemaining / quotaData.planMaxRuns) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  // Free plan — standard models are unlimited, no pro runs
+                  <div className="flex flex-col items-end w-28">
+                    <div className="flex justify-between w-full mb-1">
+                      <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">Plan</span>
+                      <span className="text-[9px] text-green-400 font-medium">Free</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-green-700 to-green-500 rounded-full w-full" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-px h-4 bg-gray-700 mx-1"></div>
+
               <button 
                 onClick={() => { router.push('/'); setTimeout(() => signOut(auth), 100); }}
-                className="text-[10px] text-gray-400 hover:text-white transition-colors uppercase tracking-widest font-semibold px-2"
+                className="text-[10px] text-red-400 hover:text-red-300 transition-colors uppercase tracking-widest font-semibold px-2 flex items-center gap-1"
                 title="Logout"
               >
+                <LogOut size={12} />
                 Logout
               </button>
             </>
@@ -675,6 +757,8 @@ export default function Home() {
               onOpenImplementationPlan={handleOpenImplementationPlan}
               pendingPlanAction={pendingPlanAction}
               onPlanActionConsumed={handlePlanActionConsumed}
+              onQuotaReached={() => setShowQuotaModal(true)}
+              onRunCompleted={fetchQuota}
               modelSelectorNode={<ModelSelector apiKey={apiKeys[0] || ''} selectedModel={selectedModel} onModelChange={setSelectedModel} variant="minimal" />}
             />}
           </div>
@@ -840,6 +924,57 @@ export default function Home() {
               <div className="flex-1 min-h-0 overflow-hidden">
                  <Terminal ref={terminalRef} />
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Quota Modal — only shown when backend explicitly denies a request with 403 entitlement error */}
+        <AnimatePresence>
+          {showQuotaModal && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#111111]/80 backdrop-blur-sm"
+            >
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0, y: 10 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                className="relative bg-[#1c1c1c] rounded-2xl p-8 max-w-md w-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col items-center text-center"
+              >
+                {/* Modal Stitching */}
+                <div className="absolute inset-2 rounded-xl border border-dashed border-gray-700/60 pointer-events-none" />
+                
+                <button
+                  onClick={() => setShowQuotaModal(false)}
+                  className="absolute top-5 right-5 text-gray-600 hover:text-gray-400 transition-colors z-10"
+                >
+                  <X size={16} strokeWidth={2.5} />
+                </button>
+                
+                <div className="relative w-16 h-16 bg-[#111] shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] rounded-full flex items-center justify-center mb-5 mt-2">
+                  <div className="absolute inset-1.5 rounded-full border border-dashed border-red-900/40 pointer-events-none" />
+                  <ShieldAlert className="w-6 h-6 text-red-500/90 z-10" strokeWidth={1.5} />
+                </div>
+                
+                <h2 className="text-[22px] font-semibold text-[#f5f4e6] mb-3 tracking-wide">Pro Runs Exhausted</h2>
+                <p className="text-[#9ca3af] mb-8 text-[15px] leading-relaxed px-2">
+                  {quotaData && quotaData.planMaxRuns > 0
+                    ? <>Your <strong className="text-white">{quotaData.planId}</strong> plan&apos;s pro runs are exhausted.<br/>Upgrade to get more runs and continue building.</>
+                    : <>This model requires a pro plan.<br/>Upgrade to access advanced AI models.</>}
+                </p>
+                
+                <button
+                  onClick={() => { setShowQuotaModal(false); window.location.href = '/#pricing'; }}
+                  className="relative w-full py-3.5 px-4 bg-[#2b64d2] hover:bg-[#2353b3] text-white rounded-xl font-medium transition-all shadow-[0_4px_14px_0_rgba(43,100,210,0.39)] flex items-center justify-center gap-2 group overflow-hidden"
+                >
+                  <div className="absolute inset-[3px] rounded-lg border border-dashed border-white/20 pointer-events-none transition-colors group-hover:border-white/30" />
+                  <span className="z-10 flex items-center gap-2 tracking-wide text-[15px]">
+                    View Pricing
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-hover:translate-x-1"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  </span>
+                </button>
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
