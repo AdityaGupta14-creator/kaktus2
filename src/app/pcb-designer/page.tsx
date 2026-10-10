@@ -10,6 +10,7 @@ import {
   ChevronDown, Box, Cpu, Zap, Radio, ToggleLeft, Disc, Package, Settings
 } from 'lucide-react';
 import Link from 'next/link';
+import { getApiPool } from '@/lib/admin';
 
 const PCBCanvas = dynamic(() => import('@/components/PCBCanvas').then((mod) => mod.PCBCanvas), { ssr: false });
 

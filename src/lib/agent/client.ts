@@ -1,4 +1,5 @@
 import type { ImageAttachment } from './image-attachments';
+import { auth } from '@/lib/firebase';
 
 export type AgentPart = { text: string } | { inline_data: { mime_type: string; data: string } };
 
@@ -8,7 +9,7 @@ export interface AgentMessage {
 }
 
 export function toGeminiImagePart(image: ImageAttachment): AgentPart {
-  return { inline_data: { mime_type: image.mimeType, data: image.data } };
+  return { inline_data: { mime_type: image.mimeType, data: image.data! } };
 }
 
 export interface AgentResponse {
@@ -19,7 +20,7 @@ export interface AgentResponse {
 }
 
 interface AgentRequest {
-  apiKeys: string[];
+  apiKeys?: string[];
   model: string;
   systemPrompt: string;
   contents: AgentMessage[];
@@ -29,106 +30,64 @@ interface AgentRequest {
   abortSignal?: AbortSignal;
 }
 
+/**
+ * Sends request to secure server-side agent gateway.
+ * The server manages key selection, rotation, bounded failover, and rate limiting.
+ */
 export async function requestAgent(request: AgentRequest): Promise<AgentResponse> {
-  if (!request.apiKeys || request.apiKeys.length === 0) {
-    // Fallback to server-side default API key
-    const payload = { ...request, apiKey: 'default_server_key' };
-    delete (payload as any).apiKeys;
+  const payload = { ...request };
+  delete (payload as any).apiKeys;
+  delete (payload as any).apiKey;
 
-    if (request.abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  if (request.abortSignal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const response = await fetch('/api/agent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: request.abortSignal,
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Agent request failed');
-    return data;
-  }
+  // Attach Firebase ID token if user is signed in
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
 
-  // Shuffle keys for load balancing
-  const keys = [...request.apiKeys].sort(() => Math.random() - 0.5);
-  let lastError: any = null;
-
-  for (const key of keys) {
-    try {
-      const payload = { ...request, apiKey: key };
-      // Remove apiKeys array from payload to avoid sending it to the server unnecessary
-      delete (payload as any).apiKeys;
-
-      const response = await fetch('/api/agent', {
-        signal: request.abortSignal,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json().catch(() => ({}));
-      
-      if (!response.ok) {
-        const errorMsg = data.error || 'Agent request failed.';
-        
-        // Track exhaustion
-        if (typeof window !== 'undefined') {
-          const isQuota = response.status === 429 || (typeof errorMsg === 'string' && errorMsg.toLowerCase().includes('quota'));
-          if (isQuota) {
-            const errsRaw = localStorage.getItem('gemini_key_errors') || '{}';
-            const errs = JSON.parse(errsRaw);
-            if (!errs[key]) errs[key] = {};
-            
-            const baseModel = request.model.replace('models/', '');
-            errs[key][baseModel] = { type: 'QUOTA_EXHAUSTED', timestamp: Date.now() };
-            localStorage.setItem('gemini_key_errors', JSON.stringify(errs));
-          }
-        }
-        
-        throw new Error(errorMsg);
-      }
-      
-      // Track usage
-      try {
-        if (typeof window !== 'undefined') {
-          const today = new Date().toISOString().split('T')[0];
-          const usageRaw = localStorage.getItem('gemini_key_usage_stats') || '{}';
-          const usage = JSON.parse(usageRaw);
-          if (!usage[today]) usage[today] = {};
-          if (!usage[today][key]) usage[today][key] = {};
-          
-          const baseModel = request.model.replace('models/', '');
-          if (!usage[today][key][baseModel]) usage[today][key][baseModel] = 0;
-          usage[today][key][baseModel] += 1;
-          localStorage.setItem('gemini_key_usage_stats', JSON.stringify(usage));
-        }
-      } catch(e) {
-        console.error("Failed to track usage", e);
-      }
-
-      // Success! Return the text
-      return {
-        text: data.text || '',
-        sources: Array.isArray(data.sources) ? data.sources : [],
-        searchQueries: Array.isArray(data.searchQueries) ? data.searchQueries : [],
-        researched: data.researched === true,
-      };
-    } catch (e: any) {
-      console.warn(`[Smart Handler] Key ending in ${key.slice(-4)} failed for model ${request.model}:`, e.message);
-      lastError = e;
-      // Continue to the next key...
+  try {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      const idToken = await currentUser.getIdToken();
+      headers['Authorization'] = `Bearer ${idToken}`;
     }
+  } catch {
+    // Non-fatal, continue with unauthenticated request
   }
 
-  // If all keys failed, throw the last error we got
-  throw new Error(`All keys failed. Last error: ${lastError?.message || 'Unknown error'}`);
+  const response = await fetch('/api/agent', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal: request.abortSignal,
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Agent generation failed.');
+  }
+
+  return {
+    text: data.text || '',
+    sources: Array.isArray(data.sources) ? data.sources : [],
+    searchQueries: Array.isArray(data.searchQueries) ? data.searchQueries : [],
+    researched: data.researched === true,
+  };
 }
 
-export async function listAgentModels(apiKey: string): Promise<Array<{
+/**
+ * Loads available Gemini models from the secure server-side endpoint.
+ * No API key query parameters are passed.
+ */
+export async function listAgentModels(_apiKey?: string): Promise<Array<{
   name: string;
   version: string;
   displayName: string;
   description: string;
 }>> {
-  const response = await fetch('/api/models?key=' + encodeURIComponent(apiKey));
+  const response = await fetch('/api/models');
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Could not load models.');
   return data.models || [];

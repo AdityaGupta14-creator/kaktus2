@@ -23,11 +23,37 @@ app.prepare().then(() => {
     console.log('> Next.js ready on http://localhost:3000');
   });
 
-  // Start Terminal WebSocket server on port 3001
-  const wss = new WebSocketServer({ port: 3001 });
+  // Start Terminal WebSocket server on port 3001 (Bound exclusively to 127.0.0.1 for local isolation)
+  const isDev = process.env.NODE_ENV !== 'production';
+  const terminalHost = '127.0.0.1';
+  const wss = new WebSocketServer({ port: 3001, host: terminalHost });
 
-  wss.on('connection', (ws) => {
-    console.log('Terminal WebSocket connected on port 3001');
+  wss.on('connection', (ws, req) => {
+    // 1. Production environment boundary: disable raw host shell in production unless explicitly opted in
+    if (!isDev && process.env.ENABLE_LOCAL_TERMINAL !== 'true') {
+      console.warn('[Security] Rejected terminal connection: Shell disabled in production environment');
+      ws.send('\r\n[Security: Interactive shell disabled in production deployment]\r\n');
+      ws.close(1008, 'Forbidden in production');
+      return;
+    }
+
+    // 2. Strict origin check to prevent Cross-Site WebSocket Hijacking (CSWSH)
+    const origin = req.headers.origin;
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'https://localhost:3000',
+      'https://127.0.0.1:3000'
+    ];
+
+    if (origin && !allowedOrigins.includes(origin)) {
+      console.warn(`[Security] Blocked unauthorized terminal connection from origin: ${origin}`);
+      ws.send(`\r\n[Security: Unauthorized origin '${origin}'. Connection terminated.]\r\n`);
+      ws.close(1008, 'Unauthorized origin');
+      return;
+    }
+
+    console.log(`[Security] Terminal WebSocket authenticated for local origin from ${req.socket.remoteAddress}`);
     const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
 
     try {

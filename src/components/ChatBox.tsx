@@ -760,7 +760,7 @@ export function ChatBox({ apiKeys, model, onExecuteCommand, onUpdateCircuit, onS
     setImageError('');
     setIsPreparingImages(true);
     try {
-      const existingBytes = pendingImages.reduce((total, image) => total + image.byteSize, 0);
+      const existingBytes = pendingImages.reduce((total, image) => total + (image.byteSize || 0), 0);
       const additions = await prepareImageAttachments(files, existingBytes, pendingImages.length);
       setPendingImages(current => [...current, ...additions]);
     } catch (error) {

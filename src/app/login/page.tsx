@@ -16,8 +16,21 @@ function LoginContent() {
     setLoading(true);
     setError(null);
     try {
-      await signInWithGoogle();
-      const redirectTo = searchParams.get('redirect') || '/ide';
+      const user = await signInWithGoogle();
+      const tokenResult = await user.getIdTokenResult(true);
+      const role = tokenResult.claims?.role || 'USER';
+
+      let redirectTo = searchParams.get('redirect');
+      if (role === 'SUPPORT') {
+        redirectTo = '/support';
+      } else if (role === 'FINANCE') {
+        redirectTo = '/finance';
+      } else if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+        redirectTo = '/admin';
+      } else if (!redirectTo || redirectTo === '/') {
+        redirectTo = '/ide';
+      }
+      
       router.push(redirectTo);
     } catch (err: any) {
       setError(err.message || "Failed to sign in. Please try again.");

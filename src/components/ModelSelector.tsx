@@ -12,7 +12,7 @@ interface Model {
 }
 
 interface ModelSelectorProps {
-  apiKey: string;
+  apiKey?: string;
   selectedModel: string;
   onModelChange: (model: string) => void;
   variant?: 'default' | 'minimal';
@@ -36,12 +36,10 @@ export function ModelSelector({ apiKey, selectedModel, onModelChange, variant = 
   }, []);
 
   useEffect(() => {
-    if (!apiKey) return;
-    
     setLoading(true);
     setError('');
     
-    listAgentModels(apiKey)
+    listAgentModels()
       .then(fetchedModels => {
         const allowedIds = [
           'models/gemini-2.5-flash-lite',
@@ -87,11 +85,11 @@ export function ModelSelector({ apiKey, selectedModel, onModelChange, variant = 
     <div className="relative" ref={dropdownRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        disabled={loading || !apiKey || models.length === 0}
+        disabled={loading || models.length === 0}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-[#1a1a1a] transition-colors text-xs text-gray-400 hover:text-gray-200 disabled:opacity-50"
       >
         <span className="font-semibold text-gray-300">
-          {!apiKey ? 'No API Key' : loading ? 'Loading...' : error ? 'Error' : getCleanLabel(activeModel)}
+          {loading ? 'Loading...' : error ? 'Error' : getCleanLabel(activeModel)}
         </span>
         <ChevronDown size={14} className="opacity-70" />
       </button>

@@ -9,7 +9,7 @@ import { ChatBox, ImplementationPlanCard } from '@/components/ChatBox';
 import { ModelSelector } from '@/components/ModelSelector';
 import type { TerminalRef } from '@/components/Terminal';
 import type { TutorialData } from '@/components/CircuitCanvas';
-import { TerminalSquare, X, Layers, Cpu, Cable, Zap, CircuitBoard, Usb, Settings, Upload, Trash2, Circle } from 'lucide-react';
+import { TerminalSquare, X, Layers, Cpu, Cable, Zap, CircuitBoard, Usb, Settings, Upload, Trash2, Circle, User } from 'lucide-react';
 import { FlashPanel } from '@/components/FlashPanel';
 import { extractProjectPlanResponse } from '@/lib/agent/protocol';
 import type { PlanBuildAction, ProjectPlan, ResearchSource } from '@/lib/agent/protocol';
@@ -80,13 +80,34 @@ export default function Home() {
   const [sessionId, setSessionId] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSaved, setLastSaved] = useState<string>('');
+  const [userRole, setUserRole] = useState<string>('USER');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'synced' | 'error' | 'offline'>('idle');
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      user.getIdTokenResult(true).then(result => {
+        if (result.claims.role) {
+          setUserRole(result.claims.role as string);
+        }
+      }).catch(console.error);
+    }
+  }, [user]);
 
   // Auto-save to Firebase with debounce (3 seconds after last change)
   const triggerAutoSave = useCallback(() => {
     if (!user?.uid || !workspaceReady) return;
+    
+    // Set to unsaved state immediately upon edit
+    setSyncStatus('idle');
+    
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     syncTimerRef.current = setTimeout(async () => {
+      if (!navigator.onLine) {
+        setSyncStatus('offline');
+        return;
+      }
+      setSyncStatus('saving');
       setIsSyncing(true);
       try {
         const registry = JSON.parse(localStorage.getItem(CHAT_SESSION_REGISTRY_KEY(user.uid)) || 'null');
@@ -102,7 +123,10 @@ export default function Home() {
         }
         await syncToFirebase(user.uid, registry, workspaces, chats);
         setLastSaved(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }));
-      } catch { /* silent fail */ }
+        setSyncStatus('synced');
+      } catch (err) { 
+        setSyncStatus('error');
+      }
       finally { setIsSyncing(false); }
     }, 3000);
   }, [user?.uid, workspaceReady]);
@@ -535,38 +559,79 @@ export default function Home() {
           <span className="text-gray-100 font-semibold tracking-wide text-sm">
             Kaktus
           </span>
-          {stats ? (
-            <div className="flex items-center gap-2 text-[10px] font-medium px-2 py-0.5 text-gray-400">
-              <span className="flex items-center gap-1" title="Components"><Cpu size={10} className="text-gray-400" /> {stats.comps}</span>
-              <span className="w-px h-3 bg-gray-700"></span>
-              <span className="flex items-center gap-1" title="Connections"><Cable size={10} className="text-gray-400" /> {stats.wires}</span>
+          <div className="flex items-center gap-2 text-[10px] font-medium px-2 py-0.5 text-gray-400">
+            {stats && (
+              <>
+                <span className="flex items-center gap-1" title="Components"><Cpu size={10} className="text-gray-400" /> {stats.comps}</span>
+                <span className="w-px h-3 bg-gray-700"></span>
+                <span className="flex items-center gap-1" title="Connections"><Cable size={10} className="text-gray-400" /> {stats.wires}</span>
+                <span className="w-px h-3 bg-gray-700"></span>
+              </>
+            )}
+            
+            <div className="flex items-center gap-1 select-none" title={lastSaved ? `Last saved at ${lastSaved}` : 'Sync status'}>
+              {syncStatus === 'saving' && <span className="text-blue-400">Saving...</span>}
+              {syncStatus === 'synced' && <span className="text-green-500">Cloud synced</span>}
+              {syncStatus === 'idle' && <span className="text-yellow-500">Unsaved changes</span>}
+              {syncStatus === 'error' && <span className="text-red-400 cursor-pointer hover:underline" onClick={triggerAutoSave}>Sync failed — retry</span>}
+              {syncStatus === 'offline' && <span className="text-gray-500">Offline</span>}
             </div>
-          ) : null}
+          </div>
         </div>
         
         {/* Right: Actions */}
         <div className="flex items-center h-full pr-4 gap-3">
           {user && (
             <>
+              {userRole === 'FINANCE' ? (
+                <Link href="/finance" className="flex items-center gap-2 group cursor-pointer hover:bg-[#333333] p-1.5 rounded-md transition-colors" title="Finance Panel">
+                  <div className="w-5 h-5 rounded-full bg-green-600 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                    {(user.displayName || user.email || "F")[0].toUpperCase()}
+                  </div>
+                  <span className="text-[11px] text-gray-300 group-hover:text-white transition-colors font-medium hidden md:block">
+                    Finance Panel
+                  </span>
+                </Link>
+              ) : userRole === 'SUPPORT' ? (
+                <Link href="/support" className="flex items-center gap-2 group cursor-pointer hover:bg-[#333333] p-1.5 rounded-md transition-colors" title="Support Panel">
+                  <div className="w-5 h-5 rounded-full bg-orange-600 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                    {(user.displayName || user.email || "S")[0].toUpperCase()}
+                  </div>
+                  <span className="text-[11px] text-gray-300 group-hover:text-white transition-colors font-medium hidden md:block">
+                    Support Panel
+                  </span>
+                </Link>
+              ) : (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') ? (
+                <Link href="/admin" className="flex items-center gap-2 group cursor-pointer hover:bg-[#333333] p-1.5 rounded-md transition-colors" title="Admin Panel">
+                  <div className="w-5 h-5 rounded-full bg-purple-600 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                    {(user.displayName || user.email || "A")[0].toUpperCase()}
+                  </div>
+                  <span className="text-[11px] text-gray-300 group-hover:text-white transition-colors font-medium hidden md:block">
+                    Admin Panel
+                  </span>
+                </Link>
+              ) : (
+                <Link href="/profile" className="flex items-center gap-2 group cursor-pointer hover:bg-[#333333] p-1.5 rounded-md transition-colors" title="My Account">
+                  <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-white text-[10px] font-bold shadow-sm">
+                    {(user.displayName || user.email || "U")[0].toUpperCase()}
+                  </div>
+                  <span className="text-[11px] text-gray-300 group-hover:text-white transition-colors font-medium hidden md:block">
+                    My Account
+                  </span>
+                </Link>
+              )}
+              
               <div className="w-px h-3 bg-gray-700 mx-1"></div>
-              <div 
-                className="flex items-center gap-2 group cursor-pointer" 
+
+              <button 
                 onClick={() => { router.push('/'); setTimeout(() => signOut(auth), 100); }}
-                title="Click to Logout"
+                className="text-[10px] text-gray-400 hover:text-white transition-colors uppercase tracking-widest font-semibold px-2"
+                title="Logout"
               >
-                <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center text-black text-[10px] font-bold shadow-sm">
-                  {(user.displayName || user.email || "U")[0].toUpperCase()}
-                </div>
-                <span className="text-[10px] text-gray-400 group-hover:text-white transition-colors uppercase tracking-widest font-semibold hidden md:block">
-                  Logout
-                </span>
-              </div>
-              <div className="w-px h-3 bg-gray-700 mx-1"></div>
+                Logout
+              </button>
             </>
           )}
-          <Link href="/admin" className="px-2 h-full flex items-center text-gray-400 hover:text-gray-200 hover:bg-[#333333] rounded transition-colors" title="Settings">
-            <Settings size={14} />
-          </Link>
         </div>
       </header>
 

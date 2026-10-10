@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useRef, useMemo } from 'react';
+import { Suspense, useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import Link from 'next/link';
@@ -129,6 +129,19 @@ import { useAuth } from '@/components/AuthProvider';
 
 export default function LandingPage() {
   const { user } = useAuth();
+  
+  const [role, setRole] = useState<string>('USER');
+  
+  useEffect(() => {
+    if (user) {
+      user.getIdTokenResult(true).then(tokenResult => {
+        setRole((tokenResult.claims?.role as string) || 'USER');
+      }).catch(console.error);
+    }
+  }, [user]);
+
+  const workspaceRoute = role === 'SUPPORT' ? '/support' : '/ide';
+
   const icons = [
     Settings, CircuitBoard, Cpu, Cable, TerminalSquare, Box, 
     Component, Zap, Database, Usb, MonitorDot, Rocket
@@ -164,7 +177,7 @@ export default function LandingPage() {
           {!user ? (
             <Link href="/login" className="font-semibold text-green-600 hover:text-green-700">Login</Link>
           ) : (
-            <Link href="/ide" className="font-semibold text-green-600 hover:text-green-700">Workspace</Link>
+            <Link href={workspaceRoute} className="font-semibold text-green-600 hover:text-green-700">Workspace</Link>
           )}
         </nav>
         
@@ -309,7 +322,7 @@ export default function LandingPage() {
             Join the physical-first era. Enter the workspace and let Kaktus turn your ideas into reality.
           </p>
           <Link 
-            href="/ide"
+            href={user ? workspaceRoute : '/login?redirect=/ide'}
             className="group relative px-10 py-5 bg-[#111] text-white text-xl font-bold rounded-full hover:bg-black transition-all hover:scale-105 shadow-2xl flex items-center gap-3 overflow-hidden"
           >
             <span className="relative z-10 flex items-center gap-2">

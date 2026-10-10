@@ -2,8 +2,10 @@ export interface ImageAttachment {
   id: string;
   name: string;
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
-  data: string;
-  byteSize: number;
+  data?: string;
+  byteSize?: number;
+  storagePath?: string;
+  url?: string;
 }
 
 export const MAX_IMAGE_ATTACHMENTS = 4;
@@ -109,16 +111,26 @@ export async function prepareImageAttachments(files: File[], existingBytes = 0, 
 export function isImageAttachment(value: unknown): value is ImageAttachment {
   if (!value || typeof value !== 'object') return false;
   const attachment = value as Partial<ImageAttachment>;
-  return typeof attachment.id === 'string'
-    && typeof attachment.name === 'string'
-    && (attachment.mimeType === 'image/jpeg' || attachment.mimeType === 'image/png' || attachment.mimeType === 'image/webp')
-    && typeof attachment.data === 'string'
-    && attachment.data.length <= Math.ceil(MAX_IMAGE_PAYLOAD_BYTES * 4 / 3) + 8
-    && typeof attachment.byteSize === 'number'
-    && attachment.byteSize > 0
-    && attachment.byteSize <= MAX_IMAGE_PAYLOAD_BYTES;
+  
+  if (!attachment.url && (typeof attachment.id !== 'string' || typeof attachment.name !== 'string')) return false;
+  
+  if (attachment.mimeType !== 'image/jpeg' && attachment.mimeType !== 'image/png' && attachment.mimeType !== 'image/webp') return false;
+  
+  // Either has data (local) or url (cloud)
+  if (attachment.data) {
+    if (typeof attachment.data !== 'string' || attachment.data.length > Math.ceil(MAX_IMAGE_PAYLOAD_BYTES * 4 / 3) + 8) return false;
+    if (typeof attachment.byteSize !== 'number' || attachment.byteSize <= 0 || attachment.byteSize > MAX_IMAGE_PAYLOAD_BYTES) return false;
+    return true;
+  }
+  
+  if (attachment.url) {
+    return typeof attachment.url === 'string';
+  }
+  
+  return false;
 }
 
 export function imageAttachmentDataUrl(attachment: ImageAttachment): string {
+  if (attachment.url) return attachment.url;
   return `data:${attachment.mimeType};base64,${attachment.data}`;
 }
